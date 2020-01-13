@@ -22,7 +22,7 @@ int main(int argc, char *argv[]) {
   std::chrono::duration<double> elapsedTime =
       std::chrono::system_clock::now() - startTime;
 
-  std::cout << "matmul result = " << v << ", time = " << elapsedTime.count()
+  std::cout << "op result = " << v << ", time = " << elapsedTime.count()
             << " seconds." << std::endl;
   return 0;
 }
