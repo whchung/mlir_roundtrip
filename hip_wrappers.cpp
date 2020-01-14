@@ -1,3 +1,4 @@
+#include <rocblas.h>
 #include <hip/hip_runtime.h>
 #include <iostream>
 
@@ -37,4 +38,14 @@ void hip_vecadd(void *A, void *B, void *C, int size) {
 
 void hip_memcpydtoh(void *host, void *device, int bytes) {
   hipMemcpy(host, device, bytes, hipMemcpyDeviceToHost);
+}
+
+void rocblas_sgemm(float *da, float *db, float *dc, int m, int n, int k, int lda, int ldb, int ldc) {
+  rocblas_operation transa = rocblas_operation_none, transb = rocblas_operation_transpose;
+  float alpha = 1.0f, beta = 1.0f;
+
+  rocblas_handle handle;
+  rocblas_create_handle(&handle);
+  rocblas_sgemm(handle, transa, transb, m, n, k, &alpha, da, lda, db, ldb, &beta, dc, ldc);
+  rocblas_destroy_handle(handle);
 }
