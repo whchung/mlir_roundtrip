@@ -52,7 +52,8 @@ void rocblas_sgemm(float *da, float *db, float *dc, int m, int n, int k, int lda
 }
 
 void miopen_conv2d(float *filter, float *input, float *output,
-                   int n, int c, int hi, int wi, int k, int y, int x, int ho, int wo) {
+                   int n, int c, int hi, int wi, int k, int y, int x, int ho, int wo,
+                   int pad_h, int pad_w, int stride_h, int stride_w, int dilation_h, int dilation_w) {
   miopenHandle_t handle;
   miopenTensorDescriptor_t inputDesc, outputDesc, filterDesc;
   miopenConvolutionDescriptor_t convDesc;
@@ -60,12 +61,12 @@ void miopen_conv2d(float *filter, float *input, float *output,
   miopenCreateConvolutionDescriptor(&convDesc);
   miopenInitConvolutionDescriptor(convDesc,
                                   /* c_mode */ miopenConvolution,
-                                  /* pad_h */ 0,
-                                  /* pad_w */ 0,
-                                  /* stride_h */ 1,
-                                  /* stride_w */ 1,
-                                  /* dilation_h */ 1,
-                                  /* dilation_w */ 1);
+                                  /* pad_h */ pad_h,
+                                  /* pad_w */ pad_w,
+                                  /* stride_h */ stride_h,
+                                  /* stride_w */ stride_w,
+                                  /* dilation_h */ dilation_h,
+                                  /* dilation_w */ dilation_w);
   miopenCreateTensorDescriptor(&inputDesc);
   miopenSet4dTensorDescriptor(inputDesc, miopenFloat, n, c, hi, wi);
   miopenCreateTensorDescriptor(&outputDesc);

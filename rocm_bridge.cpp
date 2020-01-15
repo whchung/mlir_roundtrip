@@ -13,8 +13,8 @@ void hip_vecadd(void*, void*, void*, int);
 void hip_memcpydtoh(void*, void*, int);
 
 void rocblas_sgemm(float*, float*, float*, int, int, int, int, int, int);
-void miopen_conv2d(float*, float*, float*, int, int, int, int, int, int, int, int, int);
-
+void miopen_conv2d(float*, float*, float*, int, int, int, int, int, int, int,
+                   int, int, int, int, int, int, int, int);
 
 typedef std::map<void *, void *> HostDeviceMemoryMap;
 static HostDeviceMemoryMap g_mmap;
@@ -156,6 +156,15 @@ linalg_conv_viewsxsxsxsxf32_viewsxsxsxsxf32_viewsxsxsxsxf32(
                   /* y */ filter->sizes[2],
                   /* x */ filter->sizes[3],
                   /* ho */ output->sizes[2],
-                  /* wo */ output->sizes[3]);
+                  /* wo */ output->sizes[3],
+
+                  // TBD figure out how to get these attributes from MLIR.
+
+                  /* pad_h */ 0,
+                  /* pad_w */ 0,
+                  /* stride_h */ 1,
+                  /* stride_w */ 1,
+                  /* dilation_h */ 1,
+                  /* dilation_w */ 1);
   }
 } 
