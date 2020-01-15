@@ -6,14 +6,16 @@ LLVM_LINK=$(LLVM_ROOT)/llvm-link
 LLVM_OPT=$(LLVM_ROOT)/opt
 HIPCC=/opt/rocm/hip/bin/hipcc
 
-all: matmul_lib.cpp matmul.mlir main.cpp
+all: matmul matmul_tiled vecadd vecadd_gpu matmul_gpu conv
+
+matmul: matmul_lib.cpp matmul.mlir main.cpp
 	$(CLANG) -O3 -emit-llvm -S matmul_lib.cpp -std=c++14 -I ~/llvm-project/mlir/test/mlir-cpu-runner/include -o matmul_lib.ll
 	$(MLIR_OPT) matmul.mlir -convert-linalg-to-llvm -convert-vector-to-llvm | $(MLIR_TRANSLATE) -mlir-to-llvmir > matmul.ll
 	$(LLVM_LINK) -S -o linked.ll matmul_lib.ll matmul.ll
 	$(LLVM_OPT) -S -O3 linked.ll -o opt.ll
 	$(CLANG) -O3 -DMATMUL main.cpp opt.ll ~/llvm-project/mlir/test/mlir-cpu-runner/mlir_runner_utils.cpp -I ~/llvm-project/mlir/test/mlir-cpu-runner -o matmul
 
-tiled: matmul_lib.cpp matmul.mlir main.cpp
+matmul_tiled: matmul_lib.cpp matmul.mlir main.cpp
 	$(CLANG) -O3 -emit-llvm -S matmul_lib.cpp -std=c++14 -I ~/llvm-project/mlir/test/mlir-cpu-runner/include -o matmul_lib.ll
 	$(MLIR_OPT) matmul.mlir -test-linalg-transform-patterns -convert-linalg-to-llvm -convert-vector-to-llvm | $(MLIR_TRANSLATE) -mlir-to-llvmir > matmul.ll
 	$(LLVM_LINK) -S -o linked.ll matmul_lib.ll matmul.ll
