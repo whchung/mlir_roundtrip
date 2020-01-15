@@ -134,13 +134,6 @@ linalg_conv_viewsxsxsxsxf32_viewsxsxsxsxf32_viewsxsxsxsxf32(
   //printMemRefMetaData(std::cerr, *output);
   //std::cout << std::endl;
 
-  //std::cout << "Filter:\n";
-  //printMemRef(filter);
-  //std::cout << "Input:\n";
-  //printMemRef(input);
-  //std::cout << "Output:\n";
-  //printMemRef(output);
-
   // convolution on GPU.
   if ((g_mmap.find(filter->data) != g_mmap.end()) &&
       (g_mmap.find(input->data) != g_mmap.end()) &&

@@ -51,8 +51,8 @@ func @conv() -> f32 {
   %output = view %bOutput[][%n, %c, %ho, %wo] : memref<?xi8> to memref<?x?x?x?xf32>
 
   linalg.conv(%filter, %input, %output) {
-    dilations = [0, 0],
-    strides = [0, 0]
+    dilations = [1, 1],
+    strides = [1, 1]
   } : memref<?x?x?x?xf32>,
       memref<?x?x?x?xf32>,
       memref<?x?x?x?xf32>
