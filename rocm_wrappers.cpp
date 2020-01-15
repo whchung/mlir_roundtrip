@@ -83,9 +83,8 @@ void miopen_conv2d(float *filter, float *input, float *output,
                                            /* workSpaceSize */ &workSpaceSize);
 
   void *workSpace = nullptr;
-  if (workSpaceSize > 0) {
+  if (workSpaceSize)
     hipMalloc(&workSpace, workSpaceSize);
-  }
 
   int algoCount = 0;
   miopenConvAlgoPerf_t perfResult;
@@ -120,7 +119,7 @@ void miopen_conv2d(float *filter, float *input, float *output,
                            /* workSpace */ workSpace,
                            /* workSpaceSize */ workSpaceSize); 
 
-
-  hipFree(workSpace);
+  if (workSpaceSize > 0)
+    hipFree(workSpace);
   miopenDestroy(handle);
 }
