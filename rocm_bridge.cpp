@@ -4,6 +4,8 @@
 #include <iostream>
 #include <map>
 
+#define ENABLE_CPU_ROUTE (true)
+
 void hip_alloc(void**, int);
 void hip_free(void*);
 void hip_fill(void*, float, int);
@@ -11,6 +13,8 @@ void hip_vecadd(void*, void*, void*, int);
 void hip_memcpydtoh(void*, void*, int);
 
 void rocblas_sgemm(float*, float*, float*, int, int, int, int, int, int);
+void miopen_conv2d(float*, float*, float*, int, int, int, int, int, int, int, int, int);
+
 
 typedef std::map<void *, void *> HostDeviceMemoryMap;
 static HostDeviceMemoryMap g_mmap;
@@ -55,11 +59,30 @@ extern "C" float gpu_load2d(StridedMemRefType<float, 2> *memref_host, int64_t y,
   return result;
 }
 
+extern "C" float gpu_load4d(StridedMemRefType<float, 4> *memref_host, int64_t d0, int64_t d1, int64_t d2, int64_t d3) {
+  float result = 0.f;
+
+  if (g_mmap.find(memref_host->data) != g_mmap.end()) {
+    hip_memcpydtoh(memref_host->data, g_mmap[memref_host->data], memref_host->sizes[0] * memref_host->sizes[1] * memref_host->sizes[2] * memref_host->sizes[3] * sizeof(float));
+
+    result = memref_host->data[d0 * memref_host->strides[0] +
+                               d1 * memref_host->strides[1] +
+                               d2 * memref_host->strides[2] +
+                               d3 * memref_host->strides[3]];
+  } else {
+    std::cerr << "g_mmap doesn't contain specified host address!\n";
+  }
+
+  return result;
+}
+
 extern "C" void linalg_fill_viewsxf32_f32(StridedMemRefType<float, 1> *X,
                                           float f) {
+#if ENABLE_CPU_ROUTE
   // Fill CPU memref.
   for (unsigned i = 0; i < X->sizes[0]; ++i)
     *(X->data + X->offset + i * X->strides[0]) = f;
+#endif
 
   // Fill GPU memref.
   if (g_mmap.find(X->data) != g_mmap.end()) {
@@ -96,3 +119,43 @@ linalg_matmul_viewsxsxf32_viewsxsxf32_viewsxsxf32(
     std::cerr << "g_mmap doesn't contain specified host address!\n";
   }
 }
+
+__attribute__((always_inline)) extern "C" void
+linalg_conv_viewsxsxsxsxf32_viewsxsxsxsxf32_viewsxsxsxsxf32(
+    StridedMemRefType<float, 4> *filter,
+    StridedMemRefType<float, 4> *input,
+    StridedMemRefType<float, 4> *output) {
+
+  //std::cout << std::endl;
+  //printMemRefMetaData(std::cerr, *filter);
+  //std::cout << std::endl;
+  //printMemRefMetaData(std::cerr, *input);
+  //std::cout << std::endl;
+  //printMemRefMetaData(std::cerr, *output);
+  //std::cout << std::endl;
+
+  //std::cout << "Filter:\n";
+  //printMemRef(filter);
+  //std::cout << "Input:\n";
+  //printMemRef(input);
+  //std::cout << "Output:\n";
+  //printMemRef(output);
+
+  // convolution on GPU.
+  if ((g_mmap.find(filter->data) != g_mmap.end()) &&
+      (g_mmap.find(input->data) != g_mmap.end()) &&
+      (g_mmap.find(output->data) != g_mmap.end())) {
+    miopen_conv2d(static_cast<float*>(g_mmap[filter->data]),
+                  static_cast<float*>(g_mmap[input->data]),
+                  static_cast<float*>(g_mmap[output->data]),
+                  /* n */ input->sizes[0],
+                  /* c */ input->sizes[1],
+                  /* hi */ input->sizes[2],
+                  /* wi */ input->sizes[3],
+                  /* k */ filter->sizes[0],
+                  /* y */ filter->sizes[2],
+                  /* x */ filter->sizes[3],
+                  /* ho */ output->sizes[2],
+                  /* wo */ output->sizes[3]);
+  }
+} 

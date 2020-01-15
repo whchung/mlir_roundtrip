@@ -6,7 +6,7 @@ LLVM_LINK=$(LLVM_ROOT)/llvm-link
 LLVM_OPT=$(LLVM_ROOT)/opt
 HIPCC=/opt/rocm/hip/bin/hipcc
 
-all: matmul matmul_tiled vecadd vecadd_gpu matmul_gpu conv
+all: matmul matmul_tiled vecadd vecadd_gpu matmul_gpu conv conv_gpu
 
 matmul: matmul_lib.cpp matmul.mlir main.cpp
 	$(CLANG) -O3 -emit-llvm -S matmul_lib.cpp -std=c++14 -I ~/llvm-project/mlir/test/mlir-cpu-runner/include -o matmul_lib.ll
@@ -23,7 +23,7 @@ matmul_tiled: matmul_lib.cpp matmul.mlir main.cpp
 	$(CLANG) -O3 -DMATMUL main.cpp opt.ll ~/llvm-project/mlir/test/mlir-cpu-runner/mlir_runner_utils.cpp -I ~/llvm-project/mlir/test/mlir-cpu-runner -o matmul_tiled
 
 clean:
-	rm -f *.ll matmul matmul_tiled vecadd vecadd_gpu matmul_gpu conv *.so
+	rm -f *.ll matmul matmul_tiled vecadd vecadd_gpu matmul_gpu conv conv_gpu *.so
 
 vecadd: vecadd_lib.cpp vecadd.mlir main.cpp
 	$(CLANG) -O3 -emit-llvm -S vecadd_lib.cpp -std=c++14 -I ~/llvm-project/mlir/test/mlir-cpu-runner/include -o vecadd_lib.ll
@@ -33,7 +33,7 @@ vecadd: vecadd_lib.cpp vecadd.mlir main.cpp
 	$(CLANG) -O3 -DVECADD main.cpp opt.ll ~/llvm-project/mlir/test/mlir-cpu-runner/mlir_runner_utils.cpp -I ~/llvm-project/mlir/test/mlir-cpu-runner -o vecadd
 
 librocm_wrappers.so: rocm_wrappers.cpp
-	$(HIPCC) -shared -fPIC -I /opt/rocm/rocblas/include rocm_wrappers.cpp -lrocblas -o librocm_wrappers.so
+	$(HIPCC) -shared -fPIC -I /opt/rocm/rocblas/include -I /opt/rocm/miopen/include rocm_wrappers.cpp -lrocblas -lMIOpen -o librocm_wrappers.so
 
 vecadd_gpu: librocm_wrappers.so
 	$(CLANG) -O3 -emit-llvm -S rocm_bridge.cpp -std=c++14 -I ~/llvm-project/mlir/test/mlir-cpu-runner/include -o rocm_bridge.ll
@@ -56,3 +56,9 @@ conv: conv_lib.cpp conv.mlir main.cpp
 	$(LLVM_OPT) -S -O3 linked.ll -o opt.ll
 	$(CLANG) -O3 -DCONV main.cpp opt.ll ~/llvm-project/mlir/test/mlir-cpu-runner/mlir_runner_utils.cpp -I ~/llvm-project/mlir/test/mlir-cpu-runner -o conv
 
+conv_gpu: librocm_wrappers.so rocm_bridge.cpp conv_gpu.mlir main.cpp
+	$(CLANG) -O3 -emit-llvm -S rocm_bridge.cpp -std=c++14 -I ~/llvm-project/mlir/test/mlir-cpu-runner/include -o rocm_bridge.ll
+	$(MLIR_OPT) conv_gpu.mlir -convert-linalg-to-llvm | $(MLIR_TRANSLATE) -mlir-to-llvmir > conv_gpu.ll
+	$(LLVM_LINK) -S -o linked.ll rocm_bridge.ll conv_gpu.ll
+	$(LLVM_OPT) -S -O3 linked.ll -o opt.ll
+	$(CLANG) -O3 -DCONV main.cpp opt.ll librocm_wrappers.so ~/llvm-project/mlir/test/mlir-cpu-runner/mlir_runner_utils.cpp -I ~/llvm-project/mlir/test/mlir-cpu-runner -Wl,-rpath=. -o conv_gpu

@@ -1,4 +1,5 @@
 #include <rocblas.h>
+#include <miopen/miopen.h>
 #include <hip/hip_runtime.h>
 #include <iostream>
 
@@ -48,4 +49,77 @@ void rocblas_sgemm(float *da, float *db, float *dc, int m, int n, int k, int lda
   rocblas_create_handle(&handle);
   rocblas_sgemm(handle, transa, transb, m, n, k, &alpha, da, lda, db, ldb, &beta, dc, ldc);
   rocblas_destroy_handle(handle);
+}
+
+void miopen_conv2d(float *filter, float *input, float *output,
+                   int n, int c, int hi, int wi, int k, int y, int x, int ho, int wo) {
+  miopenHandle_t handle;
+  miopenTensorDescriptor_t inputDesc, outputDesc, filterDesc;
+  miopenConvolutionDescriptor_t convDesc;
+  miopenCreate(&handle);
+  miopenCreateConvolutionDescriptor(&convDesc);
+  miopenInitConvolutionDescriptor(convDesc,
+                                  /* c_mode */ miopenConvolution,
+                                  /* pad_h */ 0,
+                                  /* pad_w */ 0,
+                                  /* stride_h */ 1,
+                                  /* stride_w */ 1,
+                                  /* dilation_h */ 1,
+                                  /* dilation_w */ 1);
+  miopenCreateTensorDescriptor(&inputDesc);
+  miopenSet4dTensorDescriptor(inputDesc, miopenFloat, n, c, hi, wi);
+  miopenCreateTensorDescriptor(&outputDesc);
+  miopenSet4dTensorDescriptor(outputDesc, miopenFloat, n, k, ho, wo);
+  miopenCreateTensorDescriptor(&filterDesc);
+  miopenSet4dTensorDescriptor(filterDesc, miopenFloat, k, c, y, x);
+
+  size_t workSpaceSize = 0;
+  miopenConvolutionForwardGetWorkSpaceSize(handle,
+                                           /* wDesc */ filterDesc,
+                                           /* xDesc */ inputDesc,
+                                           /* convDesc */ convDesc,
+                                           /* yDesc */ outputDesc,
+                                           /* workSpaceSize */ &workSpaceSize);
+
+  void *workSpace = nullptr;
+  if (workSpaceSize > 0) {
+    hipMalloc(&workSpace, workSpaceSize);
+  }
+
+  int algoCount = 0;
+  miopenConvAlgoPerf_t perfResult;
+  miopenFindConvolutionForwardAlgorithm(handle,
+                                        /* xDesc */ inputDesc,
+                                        /* x */ input,
+                                        /* wDesc */ filterDesc,
+                                        /* w */ filter,
+                                        /* convDesc */ convDesc,
+                                        /* yDesc */ outputDesc,
+                                        /* y */ output,
+                                        /* requestAlgoCount */ 1,
+                                        /* returnedAlgoCount */ &algoCount,
+                                        /* perfResults */ &perfResult,
+                                        /* workSpace */ workSpace,
+                                        /* workSpaceSize */ workSpaceSize,
+                                        /* exhaustiveSearch */ false);
+
+  float alpha = 1.0;
+  float beta = 0.0;
+  miopenConvolutionForward(handle,
+                           /* alpha */ &alpha,
+                           /* xDesc */ inputDesc,
+                           /* x */ input,
+                           /* wDesc */ filterDesc,
+                           /* w */ filter,
+                           /* convDesc */ convDesc,
+                           /* algo */ perfResult.fwd_algo,
+                           /* beta */ &beta,
+                           /* yDesc */ outputDesc,
+                           /* y */ output,
+                           /* workSpace */ workSpace,
+                           /* workSpaceSize */ workSpaceSize); 
+
+
+  hipFree(workSpace);
+  miopenDestroy(handle);
 }
