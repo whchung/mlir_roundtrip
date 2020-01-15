@@ -6,14 +6,14 @@ LLVM_LINK=$(LLVM_ROOT)/llvm-link
 LLVM_OPT=$(LLVM_ROOT)/opt
 HIPCC=/opt/rocm/hip/bin/hipcc
 
-all:
+all: matmul_lib.cpp matmul.mlir main.cpp
 	$(CLANG) -O3 -emit-llvm -S matmul_lib.cpp -std=c++14 -I ~/llvm-project/mlir/test/mlir-cpu-runner/include -o matmul_lib.ll
 	$(MLIR_OPT) matmul.mlir -convert-linalg-to-llvm -convert-vector-to-llvm | $(MLIR_TRANSLATE) -mlir-to-llvmir > matmul.ll
 	$(LLVM_LINK) -S -o linked.ll matmul_lib.ll matmul.ll
 	$(LLVM_OPT) -S -O3 linked.ll -o opt.ll
 	$(CLANG) -O3 -DMATMUL main.cpp opt.ll ~/llvm-project/mlir/test/mlir-cpu-runner/mlir_runner_utils.cpp -I ~/llvm-project/mlir/test/mlir-cpu-runner -o matmul
 
-tiled:
+tiled: matmul_lib.cpp matmul.mlir main.cpp
 	$(CLANG) -O3 -emit-llvm -S matmul_lib.cpp -std=c++14 -I ~/llvm-project/mlir/test/mlir-cpu-runner/include -o matmul_lib.ll
 	$(MLIR_OPT) matmul.mlir -test-linalg-transform-patterns -convert-linalg-to-llvm -convert-vector-to-llvm | $(MLIR_TRANSLATE) -mlir-to-llvmir > matmul.ll
 	$(LLVM_LINK) -S -o linked.ll matmul_lib.ll matmul.ll
@@ -21,9 +21,9 @@ tiled:
 	$(CLANG) -O3 -DMATMUL main.cpp opt.ll ~/llvm-project/mlir/test/mlir-cpu-runner/mlir_runner_utils.cpp -I ~/llvm-project/mlir/test/mlir-cpu-runner -o matmul_tiled
 
 clean:
-	rm -f *.ll matmul matmul_tiled vecadd vecadd_gpu matmul_gpu *.so
+	rm -f *.ll matmul matmul_tiled vecadd vecadd_gpu matmul_gpu conv *.so
 
-vecadd:
+vecadd: vecadd_lib.cpp vecadd.mlir main.cpp
 	$(CLANG) -O3 -emit-llvm -S vecadd_lib.cpp -std=c++14 -I ~/llvm-project/mlir/test/mlir-cpu-runner/include -o vecadd_lib.ll
 	$(MLIR_OPT) vecadd.mlir -convert-linalg-to-llvm | $(MLIR_TRANSLATE) -mlir-to-llvmir > vecadd.ll
 	$(LLVM_LINK) -S -o linked.ll vecadd_lib.ll vecadd.ll
@@ -46,3 +46,11 @@ matmul_gpu: librocm_wrappers.so rocm_bridge.cpp matmul_gpu.mlir main.cpp
 	$(LLVM_LINK) -S -o linked.ll rocm_bridge.ll matmul_gpu.ll
 	$(LLVM_OPT) -S -O3 linked.ll -o opt.ll
 	$(CLANG) -O3 -DMATMUL main.cpp opt.ll librocm_wrappers.so ~/llvm-project/mlir/test/mlir-cpu-runner/mlir_runner_utils.cpp -I ~/llvm-project/mlir/test/mlir-cpu-runner -Wl,-rpath=. -o matmul_gpu
+
+conv: conv_lib.cpp conv.mlir main.cpp
+	$(CLANG) -O3 -emit-llvm -S conv_lib.cpp -std=c++14 -I ~/llvm-project/mlir/test/mlir-cpu-runner/include -o conv_lib.ll
+	$(MLIR_OPT) conv.mlir -convert-linalg-to-llvm | $(MLIR_TRANSLATE) -mlir-to-llvmir > conv.ll
+	$(LLVM_LINK) -S -o linked.ll conv_lib.ll conv.ll
+	$(LLVM_OPT) -S -O3 linked.ll -o opt.ll
+	$(CLANG) -O3 -DCONV main.cpp opt.ll ~/llvm-project/mlir/test/mlir-cpu-runner/mlir_runner_utils.cpp -I ~/llvm-project/mlir/test/mlir-cpu-runner -o conv
+

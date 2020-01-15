@@ -5,6 +5,8 @@
 extern "C" float matmul();
 #elif defined(VECADD)
 extern "C" float vecadd();
+#elif defined(CONV)
+extern "C" float conv();
 #endif
 
 int main(int argc, char *argv[]) {
@@ -15,6 +17,8 @@ int main(int argc, char *argv[]) {
   float v = matmul();
 #elif defined(VECADD)
   float v = vecadd();
+#elif defined(CONV)
+  float v = conv();
 #else
   float v = 0.0f;
 #endif
