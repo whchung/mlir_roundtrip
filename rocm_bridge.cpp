@@ -44,8 +44,6 @@ extern "C" float gpu_load(StridedMemRefType<float, 1> *memref_host, int64_t inde
 extern "C" float gpu_load2d(StridedMemRefType<float, 2> *memref_host, int64_t y, int64_t x) {
   float result = 0.f;
 
-  //printMemRefMetaData(std::cerr, *memref_host);
-  //std::cerr << "( " << y << ", " << x << ")\n";
   if (g_mmap.find(memref_host->data) != g_mmap.end()) {
     hip_memcpydtoh(memref_host->data, g_mmap[memref_host->data], memref_host->sizes[0] * memref_host->sizes[1] * sizeof(float));
 
@@ -54,12 +52,15 @@ extern "C" float gpu_load2d(StridedMemRefType<float, 2> *memref_host, int64_t y,
     std::cerr << "g_mmap doesn't contain specified host address!\n";
   }
 
-  //std::cerr << "result: " << result << "\n";
   return result;
 }
 
 extern "C" void linalg_fill_viewsxf32_f32(StridedMemRefType<float, 1> *X,
                                           float f) {
+  // Fill CPU memref.
+  for (unsigned i = 0; i < X->sizes[0]; ++i)
+    *(X->data + X->offset + i * X->strides[0]) = f;
+
   // Fill GPU memref.
   if (g_mmap.find(X->data) != g_mmap.end()) {
     hip_fill(g_mmap[X->data], f, X->sizes[0]);

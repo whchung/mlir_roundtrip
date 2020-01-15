@@ -8,8 +8,6 @@ func @alloc_filled_f32(%s: index, %f: f32) -> memref<?xi8> {
   %c4 = constant 4: index
   %s4 = muli %s, %c4: index
 
-  %i1024 = constant 1024 : index
-
   %buf = alloc(%s4) {alignment = 256} : memref<?xi8>
   call @gpu_alloc(%buf) : (memref<?xi8>) -> ()
 

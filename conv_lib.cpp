@@ -48,6 +48,12 @@ linalg_conv_viewsxsxsxsxf32_viewsxsxsxsxf32_viewsxsxsxsxf32(
 
         for (int oy = 0; oy < output->sizes[2]; ++oy) {
           for (int ox = 0; ox < output->sizes[3]; ++ox) {
+            if (c == 0) {
+              output->data[n * output->strides[0] +
+                           k * output->strides[1] +
+                           oy * output->strides[2] +
+                           ox * output->strides[3]] = 0.0f;
+            }
 
             float o = 0.0f;
 
@@ -72,7 +78,7 @@ linalg_conv_viewsxsxsxsxf32_viewsxsxsxsxf32_viewsxsxsxsxf32(
             output->data[n * output->strides[0] +
                          k * output->strides[1] +
                          oy * output->strides[2] +
-                         ox * output->strides[3]] = o;
+                         ox * output->strides[3]] += o;
 
           }
         }

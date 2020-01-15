@@ -12,13 +12,13 @@ external_func(
     StridedMemRefType<float, 1> *A, StridedMemRefType<float, 1> *B,
     StridedMemRefType<float, 1> *C) {
    
-  std::cout << std::endl;
-  printMemRefMetaData(std::cerr, *A);
-  std::cout << std::endl;
-  printMemRefMetaData(std::cerr, *B);
-  std::cout << std::endl;
-  printMemRefMetaData(std::cerr, *C);
-  std::cout << std::endl;
+  //std::cout << std::endl;
+  //printMemRefMetaData(std::cerr, *A);
+  //std::cout << std::endl;
+  //printMemRefMetaData(std::cerr, *B);
+  //std::cout << std::endl;
+  //printMemRefMetaData(std::cerr, *C);
+  //std::cout << std::endl;
 
   for (int64_t i = 0; i < A->sizes[0]; ++i) {
     C->data[i] = A->data[i] + B->data[i];
