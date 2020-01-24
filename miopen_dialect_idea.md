@@ -2,12 +2,12 @@ High-level op
 =============
 
 ```mlir
-linalg.conv -> miopen.conv
+linalg.conv -> miopen.conv2d
 
-miopen.conv(%filter, %input, %output) {
-    filter_layout = [0: k, 1: c, 2: y, 3: x],
-    input_layout = [0: n, 1: c, 2: h, 3: w],
-    output_layout = [0: n, 1: k, 2: ho, 3: wo],
+miopen.conv2d(%filter, %input, %output) {
+    filter_layout = ["k", "c", "y", "x"],
+    input_layout = ["n", "c", "hi", "wi"],
+    output_layout = ["n", "k", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
     padding = [0, 0]
@@ -27,8 +27,20 @@ An example based on NCHW/KCYX/NKHW:
 // filter tensor
 %filter_gemmK_gemmM = miopen.transform(%filter) {
   layout = [
-    0: merge(1: c, 2: y, 3: x), gemmK
-    1: passthrough(0: k), gemmM
+    {
+      dimensions = [0],
+      names = ["gemmK"],
+      transformation = "merge",
+      source_dimensions = [1, 2, 3],
+      source_names = ["c", "y", "x"]
+    },
+    {
+      dimensions = [1],
+      names = ["gemmM"],
+      transformation = "passthrough",
+      source_dimensions = [0],
+      source_names = ["n"]
+    }
   ]
 } : memref<?x?x?x?xf32> to memref<?x?xf32>
 ```
@@ -37,26 +49,91 @@ An example based on NCHW/KCYX/NKHW:
 // input tensor
 %input_n_c_hipad_wipad = miopen.transform(%input) {
   layout = [
-    0: passthrough(0: n), n
-    1: passthrough(1: c), c
-    2: pad(2: h, 0, 0), hipad
-    3: pad(3: w, 0, 0), wipad
+    {
+      dimensions = [0],
+      names = ["n"],
+      transformation = "passthorugh",
+      source_dimensions = [0],
+      source_names = ["n"]
+    },
+    {
+      dimensions = [1],
+      names = ["c"],
+      transformation = "passthorugh",
+      source_dimensions = [1],
+      source_names = ["c"]
+    },
+    {
+      dimensions = [2],
+      names = ["hipad"],
+      transformation = "pad",
+      parameters = [0, 0],
+      source_dimensions = [2],
+      source_names = ["hi"]
+    },
+    {
+      dimensions = [3],
+      names = ["wipad"],
+      transformation = "pad",
+      parameters = [0, 0],
+      source_dimensions = [3],
+      source_names = ["wi"]
+    }
   ]
-} : memref<?x?x?x?xf32> to memref<?x?x?x?f32>
+} : memref<?x?x?x?xf32> to memref<?x?x?x?xf32>
 
 %input_n_c_y_ho_x_wo = miopen.transform(%input_n_c_hipad_wipad) {
   layout = [
-    0: passthrough(0: n), n
-    1: passthrough(1: c), c
-    [2, 3]: embed(2: hipad, 2, [1, 1, 0]), [y, ho]
-    [4, 5]: embed(3: wipad, 2, [1, 1, 0]), [x, wo]
+    layout = [
+      {
+        dimensions = [0],
+        names = ["n"],
+        transformation = "passthrough",
+        source_dimensions = [0],
+        source_names = ["n"]
+      },
+      {
+        dimensions = [1],
+        names = ["c"],
+        transformation = "passthrough",
+        source_dimensions = [1],
+        source_names = ["c"]
+      },
+      {
+        dimensions = [2, 3],
+        names = ["y", "ho"],
+        transformation = "embed",
+        parameters = [2, [1, 1, 0]],
+        source_dimensions = [2],
+        source_names = ["hipad"]
+      },
+      {
+        dimensions = [4, 5],
+        names = ["x", "wo"],
+        transformation = "embed",
+        parameters = [2, [1, 1, 0]],
+        source_dimensions = [2],
+        source_names = ["wipad"]
+      }
   ]
 } : memref<?x?x?x?xf32> to memref<?x?x?x?x?x?x?xf32>
 
 %input_gemmK_gemmN = miopen.transform(%input_n_c_y_ho_x_wo) {
   layout = [
-    0: merge(1: c, 2: y, 4: x), gemmK
-    1: merge(0: n, 3: ho, 5: wo), gemmN
+    {
+      dimensions = [0],
+      names = ["gemmK"],
+      transformation = "merge",
+      source_dimensions = [1, 2, 4],
+      source_names = ["c", "y", "x"]
+    },
+    {
+      dimensions = [1],
+      names = ["gemmN"],
+      transformation = "merge",
+      source_dimensions = [0, 3, 5],
+      source_names = ["n", "ho", "wo"]
+    }
   ]
 } : memref<?x?x?x?x?x?x?xf32> to memref<?x?xf32>
 ```
@@ -65,8 +142,20 @@ An example based on NCHW/KCYX/NKHW:
 // output tensor
 %output_gemmM_gemmN = miopen.transform(%output) {
   layout = [
-    0: passthrough(1: k), gemmM
-    1: merge(0: n, 2: ho, 3: wo), gemmN
+    {
+      dimensions = [0],
+      names = ["gemmM"],
+      transformation = "passthrough",
+      source_dimensions = [1],
+      source_names = ["k"]
+    },
+    {
+      dimensions = [1],
+      names = ["gemmN"],
+      transformation = "merge",
+      source_dimensions = [0, 2, 3],
+      source_names = ["n", "ho", "wo"]
+    }
   ]
 } : memref<?x?x?x?xf32> to memref<?x?xf32>
 ```
