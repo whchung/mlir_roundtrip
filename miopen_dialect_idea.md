@@ -249,6 +249,7 @@ CK_PARAM_TUNABLE_GEMM_B_BLOCK_COPY_SRC_DATA_PER_READ_GEMM_N: 1
 
 CK_PARAM_TUNABLE_GEMM_C_THREAD_COPY_DST_DATA_PER_WRITE_GEMM_N1: 1
   - vary per layout, TBD
+
 Tunable parameters and their rules for XDLOPs kernels
 =====================================================
 truly need to be tuned:

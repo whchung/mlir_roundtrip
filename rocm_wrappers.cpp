@@ -69,10 +69,15 @@ void miopen_conv2d(float *filter, float *input, float *output,
                                   /* dilation_w */ dilation_w);
   miopenCreateTensorDescriptor(&inputDesc);
   miopenSet4dTensorDescriptor(inputDesc, miopenFloat, n, c, hi, wi);
+  miopenSet4dTensorDescriptorLayout(inputDesc, "nchw");
+
   miopenCreateTensorDescriptor(&outputDesc);
   miopenSet4dTensorDescriptor(outputDesc, miopenFloat, n, k, ho, wo);
+  miopenSet4dTensorDescriptorLayout(outputDesc, "nkhw");
+
   miopenCreateTensorDescriptor(&filterDesc);
   miopenSet4dTensorDescriptor(filterDesc, miopenFloat, k, c, y, x);
+  miopenSet4dTensorDescriptorLayout(filterDesc, "kcyx");
 
   size_t workSpaceSize = 0;
   miopenConvolutionForwardGetWorkSpaceSize(handle,
