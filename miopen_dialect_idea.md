@@ -189,15 +189,15 @@ An example based on NCHW/KCYX/NKHW:
 // apply gridwise GEMM
 miopen.gridwise_gemm(%filter_gemmK_gemmM, %input_gemmK_gemmN, %output_gemmM_gemmN) {
   kernel_algorithm = "v4r4",
-  dilations = [1, 1],
-  filter_dimension = [128, 8, 3, 3],
+  filter_dimension = [?, ?, ?, ?],
   filter_layout = ["k", "c", "y", "x"],
-  input_dimension = [128, 8, 32, 32],
+  input_dimension = [?, ?, ?, ?],
   input_layout = ["n", "c", "hi", "wi"],
-  output_dimension = [128, 128, 30, 30],
+  output_dimension = [?, ?, ?, ?],
   output_layout = ["n", "k", "ho", "wo"],
-  padding = [[0, 0], [0, 0]],
-  strides = [1, 1]
+  dilations = [1, 1],
+  strides = [1, 1],
+  padding = [[0, 0], [0, 0]]
 } : memref<?x?xf32>,
     memref<?x?xf32>,
     memref<?x?xf32>
@@ -364,15 +364,15 @@ An example based on NCHW/KCYX/NKHW:
 // apply gridwise GEMM
 miopen.gridwise_gemm(%filter_gemmK_gemmM, %output_gemmK_gemmN, %input_gemmM_gemmN) {
   kernel_algorithm = "backward_data_v1r1",
-  dilations = [1, 1],
-  filter_dimension = [128, 8, 3, 3],
+  filter_dimension = [?, ?, ?, ?],
   filter_layout = ["k", "c", "y", "x"],
-  input_dimension = [128, 8, 32, 32],
+  input_dimension = [?, ?, ?, ?],
   input_layout = ["n", "c", "hi", "wi"],
-  output_dimension = [128, 128, 30, 30],
+  output_dimension = [?, ?, ?, ?],
   output_layout = ["n", "k", "ho", "wo"],
-  padding = [[0, 0], [0, 0]],
-  strides = [1, 1]
+  dilations = [1, 1],
+  strides = [1, 1],
+  padding = [[0, 0], [0, 0]]
 } : memref<?x?xf32>,
     memref<?x?xf32>,
     memref<?x?xf32>
