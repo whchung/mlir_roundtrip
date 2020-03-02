@@ -188,9 +188,16 @@ An example based on NCHW/KCYX/NKHW:
 ```mlir
 // apply gridwise GEMM
 miopen.gridwise_gemm(%filter_gemmK_gemmM, %input_gemmK_gemmN, %output_gemmM_gemmN) {
+  kernel_algorithm = "v4r4",
+  dilations = [1, 1],
+  filter_dimension = [128, 8, 3, 3],
   filter_layout = ["k", "c", "y", "x"],
+  input_dimension = [128, 8, 32, 32],
   input_layout = ["n", "c", "hi", "wi"],
+  output_dimension = [128, 128, 30, 30],
   output_layout = ["n", "k", "ho", "wo"],
+  padding = [[0, 0], [0, 0]],
+  strides = [1, 1]
 } : memref<?x?xf32>,
     memref<?x?xf32>,
     memref<?x?xf32>
@@ -229,12 +236,12 @@ An example based on NCHW/KCYX/NKHW:
 
 ```mlir
 // output_diff tensor
-%output_gemmM_gemmN = miopen.transform(%output_diff) {
-  gridwise_gemm_argument_position = 2
+%output_gemmK_gemmN = miopen.transform(%output_diff) {
+  gridwise_gemm_argument_position = 1,
   layout = [
     {
       dimensions = [0],
-      names = ["gemmM"],
+      names = ["gemmK"],
       transformation = "passthrough",
       source_dimensions = [1],
       source_names = ["k"]
@@ -247,8 +254,8 @@ An example based on NCHW/KCYX/NKHW:
       source_names = ["n", "ho", "wo"]
     }
   ],
-  output_layout = ["gemmM", "gemmN"],
-  source_layout = ["n", "ko", "ho", "wo"]
+  output_layout = ["gemmK", "gemmN"],
+  source_layout = ["n", "k", "ho", "wo"]
 } : memref<?x?x?x?xf32> to memref<?x?xf32>
 ```
 
@@ -330,11 +337,12 @@ An example based on NCHW/KCYX/NKHW:
   output_layout = ["n", "c", "y", "ho", "x", "wo"]
 } : memref<?x?x?x?xf32> to memref<?x?x?x?x?x?x?xf32>
 
-%input_gemmK_gemmN = miopen.transform(%input_n_c_y_ho_x_wo) {
+%input_gemmM_gemmN = miopen.transform(%input_n_c_y_ho_x_wo) {
+  gridwise_gemm_argument_position = 2,
   layout = [
     {
       dimensions = [0],
-      names = ["gemmK"],
+      names = ["gemmM"],
       transformation = "merge",
       source_dimensions = [1, 2, 4],
       source_names = ["c", "y", "x"]
@@ -348,16 +356,23 @@ An example based on NCHW/KCYX/NKHW:
     }
   ],
   intermediate_layout = ["n", "c", "y", "ho", "x", "wo"],
-  output_layout = ["gemmK", "gemmN"]
+  output_layout = ["gemmM", "gemmN"]
 } : memref<?x?x?x?x?x?x?xf32> to memref<?x?xf32>
 ```
 
 ```mlir
 // apply gridwise GEMM
-miopen.gridwise_gemm(%filter_gemmK_gemmM, %output_gemmM_gemmN, %input_gemmK_gemmN) {
+miopen.gridwise_gemm(%filter_gemmK_gemmM, %output_gemmK_gemmN, %input_gemmM_gemmN) {
+  kernel_algorithm = "backward_data_v1r1",
+  dilations = [1, 1],
+  filter_dimension = [128, 8, 3, 3],
   filter_layout = ["k", "c", "y", "x"],
+  input_dimension = [128, 8, 32, 32],
   input_layout = ["n", "c", "hi", "wi"],
+  output_dimension = [128, 128, 30, 30],
   output_layout = ["n", "k", "ho", "wo"],
+  padding = [[0, 0], [0, 0]],
+  strides = [1, 1]
 } : memref<?x?xf32>,
     memref<?x?xf32>,
     memref<?x?xf32>
