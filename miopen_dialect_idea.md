@@ -378,6 +378,100 @@ miopen.gridwise_gemm(%filter_gemmK_gemmM, %output_gemmK_gemmN, %input_gemmM_gemm
     memref<?x?xf32>
 ```
 
+-------------------------------------------------------------------------------
+
+Gridwise GEMM -> Blockwise Slice Copy + Blockwise GEMM + Threadwise Slice Copy
+
+```mlir
+
+miopen.gridwise_gemm_ex(%matrix_a, %matrix_b, %matric_c) {
+  block_size = 256,
+
+  m_per_block = 128,
+  n_per_block = 128,
+  k_per_block = 16,
+
+  m_per_thread = 64,
+  n_per_thread = 64,
+  k_per_thread = 16,
+
+  m_level0_cluster = 16,
+  n_level0_cluster = 16,
+  m_level1_cluster = 16,
+  n_level1_cluster = 16,
+
+  matrix_a_source_vector_read_dim = 0,
+  matrix_a_source_data_per_read = 4,
+  matrix_a_dest_data_per_write_dim_m = 4,
+
+  matrix_b_source_vector_read_dim = 1,
+  matrix_b_source_data_per_read = 4,
+  matrix_b_dest_data_per_write_dim_n = 4,
+
+  matrix_c_source_dest_vector_read_write_dim = 3,
+  matrix_c_dest_data_per_write = 1
+} : memref<kxmxf32>, memref<kxnxf32>, memref<mxnxf32>
+
+```
+
+```mlir
+
+%block_shared = miopen.alloc(shared_block_size, shared_address_space) : memref<?xf32, shared_address_space>
+
+# TBD. Can/should we use affine map?
+# %block_a is a subview of %block_shared
+%block_a = miopen.subview(%block_shared, pointer_to_a) : memref<?xf32>
+# %block_b is a subview of %block_shared
+%block_b = miopen.subview(%block_Shared, pointer_to_b) : memref<?xf32>
+
+%thread_c = miopen.alloc(m_per_block / (m_per_thread * m_level0_cluster * m_level1_cluster) * m_per_thread * n_per_block / (n_per_thread * n_level0_cluster * n_level1_cluster) * n_per_thread, private_address_space) : memref<?xf32, private_address_space>
+
+# zero-init %thread_c
+miopen.zero_fill(%thread_c, 0)
+
+# TBD how to set/pass blockwise_copy parameters?
+miopen.blockwise_copy(%matrix_a, %block_a) 
+miopen.blockwise_copy(%matrix_b, %block_b)
+
+# TBD determine how induction variable for the loop be modeled
+loop.for %k_data_block_begin = 0 to SOMEWHERE step SOMESTEP {
+  # TBD. Can/should we use affine map?
+  # %block_a_now is a subview of %block_a
+  %block_a_now = miopen.subview(%block_a, some_pointer) : memref<?xf32, shared_address_space>
+
+  # %block_b_now is a subview of %block_b
+  %block_b_now = miopen.subview(%block_b, some_pointer) : memref<?xf32, shared_address_space>
+
+  # %block_a_next is a subview of %block_a
+  %block_a_next = miopen.subview(%block_a, some_pointer) : memref<?xf32, shared_address_space>
+
+  # %block_b_next is a subview of %block_b
+  %block_b_next = miopen.subview(%block_b, some_pointer) : memref<?xf32, shared_address_space>
+
+
+  %thread_a = miopen.alloc(values from blockwise_copy_a, private_address_space) : memref<?xf32, private_address_space>
+  %thread_b = miopen.alloc(values from blockwise_copy_b, private_address_space) : memref<?xf32, private_address_space>
+
+
+  # TBD how to model move slice window?
+
+  # TBD model LDS syncthreads
+  miopen.lds_barrier()
+
+  miopen.blockwise_copy_load(%matrix_a, %thread_a)
+  miopen.blockwise_copy_load(%matrix_b, %thread_b)
+
+  miopen.blockwise_gemm(%block_a_now, %block_b_now, %thread_c)
+
+  miopen.blockwise_copy_store(%thread_a, %block_a_next)
+  miopen.blockwise_copy_store(%thread_b, %block_b_next)
+}
+
+# TBD model loop tail
+
+
+miopen.threadwise_copy(%thread_c, %matrix_c)
+```
 
 -------------------------------------------------------------------------------
 
