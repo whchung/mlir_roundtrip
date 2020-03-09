@@ -416,60 +416,94 @@ miopen.gridwise_gemm_ex(%matrix_a, %matrix_b, %matric_c) {
 
 ```mlir
 
-%block_shared = miopen.alloc(shared_block_size, shared_address_space) : memref<?xf32, shared_address_space>
+# %shared_block_size is computed from the following parameters:
+# - matrix_a_dest_data_per_write_dim_m
+# - matrix_b_dest_data_per_write_dim_n
+# - m_per_thread
+# - n_per_thread
+# - m_per_block
+# - n_per_block
+# - n, m, k
+#
+# LDS memory address space is fixed at 3.
+%block_shared = miopen.alloc(%shared_block_size, %c3) : memref<?xf32, #3>
 
-# TBD. Can/should we use affine map?
-# %block_a is a subview of %block_shared
-%block_a = miopen.subview(%block_shared, pointer_to_a) : memref<?xf32>
-# %block_b is a subview of %block_shared
-%block_b = miopen.subview(%block_Shared, pointer_to_b) : memref<?xf32>
+# %block_a, %block_a_even, %block_a_odd are subviews of %block_shared
+# %block_a_size is computed similiar with %shared_block_size
+%block_a = miopen.subview(%block_shared, 0) : memref<?xf32>
+%block_a_even = miopen.subview(%block_a, 0) : memref<?xf32, #3>
+%block_a_odd  = miopen.subview(%block_a, %block_a_size) : memref<?xf32, #3>
 
-%thread_c = miopen.alloc(m_per_block / (m_per_thread * m_level0_cluster * m_level1_cluster) * m_per_thread * n_per_block / (n_per_thread * n_level0_cluster * n_level1_cluster) * n_per_thread, private_address_space) : memref<?xf32, private_address_space>
+# %block_b, %block_b_even, %block_b_odd are subviews of %block_shared
+# %pointer_to_block_b is computed following the same logic with %shared_block_Size
+# %block_b_size is computed similiar with %shared_block_size
+%block_b = miopen.subview(%block_Shared, %pointer_to_block_b) : memref<?xf32>
+%block_b_even = miopen.subview(%block_b, 0) : memref<?xf32, #3>
+%block_b_odd  = miopen.subview(%block_b, %block_b_size) : memref<?xf32, #3>
+
+# %matrix_c_size is computed from the following formula:
+# m_per_block / (m_per_thread * m_level0_cluster * m_level1_cluster) * m_per_thread * n_per_block / (n_per_thread * n_level0_cluster * n_level1_cluster) * n_per_threado
+#
+# private address space is fixed as a constant 5.
+%thread_c = miopen.alloc(%matrix_c_size, %c5) : memref<?xf32, #5>
 
 # zero-init %thread_c
-miopen.zero_fill(%thread_c, 0)
+miopen.fill(%thread_c, %c0)
 
-# TBD how to set/pass blockwise_copy parameters?
-miopen.blockwise_copy(%matrix_a, %block_a) 
-miopen.blockwise_copy(%matrix_b, %block_b)
+# copy from global to LDS.
+miopen.blockwise_copy(%matrix_a, %block_a_even) 
+miopen.blockwise_copy(%matrix_b, %block_b_even)
 
-# TBD determine how induction variable for the loop be modeled
-loop.for %k_data_block_begin = 0 to SOMEWHERE step SOMESTEP {
-  # TBD. Can/should we use affine map?
-  # %block_a_now is a subview of %block_a
-  %block_a_now = miopen.subview(%block_a, some_pointer) : memref<?xf32, shared_address_space>
+# %blockwise_copy_matrix_a = (k_per_block / A_BLOCK_COPY_CLUSTER_LENGTH_GEMM_K * m_per_block / A_BLOCK_COPY_CLUSTER_LENGTH_GEMM_M
+# %blockwise_copy_matrix_b = (k_per_block / B_BLOCK_COPY_CLUSTER_LENGTH_GEMM_K * n_per_block / B_BLOCK_COPY_CLUSTER_LENGTH_GEMM_N
+%thread_a_even = miopen.alloc(%blockwise_copy_matrix_a, %c5) : memref<?xf32, #5>
+%thread_a_odd = miopen.alloc(%blockwise_copy_matrix_a, %c5) : memref<?xf32, #5>
+%thread_b_even = miopen.alloc(%blockwise_copy_matrix_b, %c5) : memref<?xf32, #5>
+%thread_b_odd = miopen.alloc(%blockwise_copy_matrix_b, %c5) : memref<?xf32, #5>
 
-  # %block_b_now is a subview of %block_b
-  %block_b_now = miopen.subview(%block_b, some_pointer) : memref<?xf32, shared_address_space>
+# %total_iteration = k / (k_per_block * 2)
+loop.for %iter = %c0 to %total_iteration {
 
-  # %block_a_next is a subview of %block_a
-  %block_a_next = miopen.subview(%block_a, some_pointer) : memref<?xf32, shared_address_space>
+  # manually unrolled double buffered loop.
 
-  # %block_b_next is a subview of %block_b
-  %block_b_next = miopen.subview(%block_b, some_pointer) : memref<?xf32, shared_address_space>
-
-
-  %thread_a = miopen.alloc(values from blockwise_copy_a, private_address_space) : memref<?xf32, private_address_space>
-  %thread_b = miopen.alloc(values from blockwise_copy_b, private_address_space) : memref<?xf32, private_address_space>
-
-
-  # TBD how to model move slice window?
-
-  # TBD model LDS syncthreads
   miopen.lds_barrier()
 
-  miopen.blockwise_copy_load(%matrix_a, %thread_a)
-  miopen.blockwise_copy_load(%matrix_b, %thread_b)
+  # copy from global to register.
+  miopen.blockwise_copy(%matrix_a, %thread_a_even) { move_source_slice_window = k_per_block }
+  miopen.blockwise_copy(%matrix_b, %thread_b_even) { move_source_slice_window = k_per_block }
 
-  miopen.blockwise_gemm(%block_a_now, %block_b_now, %thread_c)
+  # blockwise GEMM is currently always LDS * LDS to register.
+  miopen.blockwise_gemm(%block_a_even, %block_b_even, %thread_c)
 
-  miopen.blockwise_copy_store(%thread_a, %block_a_next)
-  miopen.blockwise_copy_store(%thread_b, %block_b_next)
+  # copy from register to LDS.
+  miopen.blockwise_copy(%thread_a_even, %block_a_odd)
+  miopen.blockwise_copy(%thread_b_even, %block_b_odd)
+
+
+  miopen.lds_barrier()
+
+  # copy from global to register.
+  miopen.blockwise_copy(%matrix_a, %thread_a_odd) { move_source_slice_window = k_per_block }
+  miopen.blockwise_copy(%matrix_b, %thread_b_odd) { move_source_slice_window = k_per_block }
+
+  # blockwise GEMM is currently always LDS * LDS to register.
+  miopen.blockwise_gemm(%block_a_odd, %block_b_odd, %thread_c)
+
+  # copy from register to LDS.
+  miopen.blockwise_copy(%thread_a_even, %block_a_even)
+  miopen.blockwise_copy(%thread_b_even, %block_b_even)
 }
 
-# TBD model loop tail
+# loop tail
+%has_two_iterations_left = (k % (k_per_block * 2) == 0
+miopen.lds_barrier()
+loop.if %has_two_iterations_left {
+  miopen.blockwise_gemm(%block_a_odd, %block_b_odd, %thread_c)
+} else {
+  miopen.blockwise_gemm(%block_a_even, %block_b_even, %thread_c)
+}
 
-
+# copy from register to global.
 miopen.threadwise_copy(%thread_c, %matrix_c)
 ```
 
