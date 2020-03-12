@@ -426,40 +426,67 @@ miopen.gridwise_gemm_ex(%matrix_a, %matrix_b, %matric_c) {
 # - n, m, k
 #
 # LDS memory address space is fixed at 3.
-%block_shared = miopen.alloc(%shared_block_size, %c3) : memref<?xf32, #3>
+%block_shared = miopen.alloc(%shared_block_size, %c3) : memref<?xi8, #3>
 
-# %block_a, %block_a_even, %block_a_odd are subviews of %block_shared
+# Views for Matrix A on LDS memory
+
+# %block_a is an 1-D subview of %block_shared
+%block_a = miopen.subview(%block_shared, %c0) : memref<?xi8, #3> to memref<?xi8, #3>
+
+# %block_a_even is an 1-D subview of %block_a
+%block_a_even = miopen.subview(%block_a, %c0) : memref<?xi8, #3> to memref<?xi8, #3>
+
+# %matrix_block_a_even is an 2-D subview of %block_a
+%matrix_block_a_even = miopen.subview(%block_a, %c0) { dimension = [%k, %m] } : memref<?xi8, #3> to memref<?x?xf32, #3>
+
+# %block_a_odd is an 1-D subview of %block_a
 # %block_a_size is computed similiar with %shared_block_size
-%block_a = miopen.subview(%block_shared, 0) : memref<?xf32, #3>
-%block_a_even = miopen.subview(%block_a, 0) : memref<?xf32, #3>
-%block_a_odd  = miopen.subview(%block_a, %block_a_size) : memref<?xf32, #3>
+%block_a_odd  = miopen.subview(%block_a, %block_a_size) : memref<?xi8, #3> to memref<?xi8, #3>
 
-# %block_b, %block_b_even, %block_b_odd are subviews of %block_shared
-# %pointer_to_block_b is computed following the same logic with %shared_block_Size
+# %matrix_block_a_odd is an 2-D subview of %block_a
+%matrix_block_a_odd = miopen.subview(%block_a_odd, %block_a_size) { dimension = [%k, %m] } : memref<?xi8, #3> to memref<?x?xf32, #3>
+
+
+# Views for Matrix B on LDS memory
+
+# %block_b is an 1-D subview of %block_shared
+%block_b = miopen.subview(%block_shared, %c0) : memref<?xi8, #3> to memref<?xi8, #3>
+
+# %block_b_even is an 1-D subview of %block_b
+%block_b_even = miopen.subview(%block_b, %c0) : memref<?xi8, #3> to memref<?xi8, #3>
+
+# %matrix_block_b_even is an 2-D subview of %block_b
+%matrix_block_b_even = miopen.subview(%block_b, %c0) { dimension = [%k, %m] } : memref<?xi8, #3> to memref<?x?xf32, #3>
+
+# %block_b_odd is an 1-D subview of %block_b
 # %block_b_size is computed similiar with %shared_block_size
-%block_b = miopen.subview(%block_Shared, %pointer_to_block_b) : memref<?xf32, #3>
-%block_b_even = miopen.subview(%block_b, 0) : memref<?xf32, #3>
-%block_b_odd  = miopen.subview(%block_b, %block_b_size) : memref<?xf32, #3>
+%block_b_odd  = miopen.subview(%block_b, %block_b_size) : memref<?xi8, #3> to memref<?xi8, #3>
+
+# %matrix_block_b_odd is an 2-D subview of %block_b
+%matrix_block_b_odd = miopen.subview(%block_b_odd, %block_b_size) { dimension = [%k, %m] } : memref<?xi8, #3> to memref<?x?xf32, #3>
+
 
 # %matrix_c_size is computed from the following formula:
 # m_per_block / (m_per_thread * m_level0_cluster * m_level1_cluster) * m_per_thread * n_per_block / (n_per_thread * n_level0_cluster * n_level1_cluster) * n_per_thread
 #
 # private address space is fixed as a constant 5.
-%thread_c = miopen.alloc(%matrix_c_size, %c5) : memref<?xf32, #5>
+%thread_c = miopen.alloc(%matrix_c_size, %c5) : memref<?xi8, #5>
+# %matrix_thread_c is an 2-D subview of %thread_c
+%matrix_thread_c = miopen.subview(%thread_c, %c0) { dimension = [%m, %n] } : memref<?xi8, #5> to memref<?x?xf32, #5>
 
 # %blockwise_copy_matrix_a = (k_per_block / A_BLOCK_COPY_CLUSTER_LENGTH_GEMM_K * m_per_block / A_BLOCK_COPY_CLUSTER_LENGTH_GEMM_M
 # %blockwise_copy_matrix_b = (k_per_block / B_BLOCK_COPY_CLUSTER_LENGTH_GEMM_K * n_per_block / B_BLOCK_COPY_CLUSTER_LENGTH_GEMM_N
-%thread_a_even = miopen.alloc(%blockwise_copy_matrix_a, %c5) : memref<?xf32, #5>
-%thread_a_odd = miopen.alloc(%blockwise_copy_matrix_a, %c5) : memref<?xf32, #5>
-%thread_b_even = miopen.alloc(%blockwise_copy_matrix_b, %c5) : memref<?xf32, #5>
-%thread_b_odd = miopen.alloc(%blockwise_copy_matrix_b, %c5) : memref<?xf32, #5>
+%thread_a_even = miopen.alloc(%blockwise_copy_matrix_a, %c5) : memref<?xi8, #5>
+%thread_a_odd = miopen.alloc(%blockwise_copy_matrix_a, %c5) : memref<?xi8, #5>
+%thread_b_even = miopen.alloc(%blockwise_copy_matrix_b, %c5) : memref<?xi8, #5>
+%thread_b_odd = miopen.alloc(%blockwise_copy_matrix_b, %c5) : memref<?xi8, #5>
 
 # zero-init %thread_c
 miopen.fill(%thread_c, %c0) : memref<?xf32, #5>
 
 # copy from global (generic tensor) to LDS (naive tensor).
-miopen.blockwise_copy(%matrix_a, %block_a_even) : memref<?xf32>, memref<?xf32, #3> 
-miopen.blockwise_copy(%matrix_b, %block_b_even) : memref<?xf32>, memref<?xf32, #3>
+miopen.blockwise_copy(%matrix_a, %block_a_even) : memref<?x?xf32>, memref<?xi8, #3> 
+miopen.blockwise_copy(%matrix_b, %block_b_even) : memref<?x?xf32>, memref<?xi8, #3>
 
 # %total_iteration = k / (k_per_block * 2)
 loop.for %iter = %c0 to %total_iteration {
@@ -469,43 +496,91 @@ loop.for %iter = %c0 to %total_iteration {
   miopen.lds_barrier()
 
   # copy from global (generic tensor) to register (naive tensor).
-  miopen.blockwise_copy(%matrix_a, %thread_a_even) { move_source_slice_window = k_per_block }
-  miopen.blockwise_copy(%matrix_b, %thread_b_even) { move_source_slice_window = k_per_block }
+  miopen.blockwise_copy(%matrix_a, %thread_a_even) { move_source_offset = k_per_block } : memref<?x?xf32>, memref<?xi8, #5>
+  miopen.blockwise_copy(%matrix_b, %thread_b_even) { move_source_offset = k_per_block } : memref<?x?xf32>, memref<?xi8, #5>
 
   # blockwise GEMM is currently always LDS * LDS to register.
-  miopen.blockwise_gemm(%block_a_even, %block_b_even, %thread_c)
+  miopen.blockwise_gemm(%matrix_block_a_even, %matrix_block_b_even, %matrix_thread_c) {
+    m_per_thread = 64,
+    n_per_thread = 64,
+    k_per_thread = 16,
+
+    m_level0_cluster = 16,
+    n_level0_cluster = 16,
+    m_level1_cluster = 16,
+    n_level1_cluster = 16,
+
+    matrix_a_source_data_per_read = 4,
+    matrix_b_source_data_per_read = 4
+  } : memref<?x?xf32, #3>, memref<?x?xf32, #3>, memref<?x?xf32, #5>
 
   # copy from register (naive tensor) to LDS (naive tensor).
-  miopen.blockwise_copy(%thread_a_even, %block_a_odd)
-  miopen.blockwise_copy(%thread_b_even, %block_b_odd)
+  miopen.blockwise_copy(%thread_a_even, %block_a_odd) : memref<?xi8, #5>, memref<?xi8, #3>
+  miopen.blockwise_copy(%thread_b_even, %block_b_odd) : memref<?xi8, #5>, memref<?xi8, #3>
 
 
   miopen.lds_barrier()
 
   # copy from global (generic tensor) to register (naive tensor).
-  miopen.blockwise_copy(%matrix_a, %thread_a_odd) { move_source_slice_window = k_per_block }
-  miopen.blockwise_copy(%matrix_b, %thread_b_odd) { move_source_slice_window = k_per_block }
+  miopen.blockwise_copy(%matrix_a, %thread_a_odd) { move_source_offset = k_per_block } : memref<?x?xf32>, memref<?xi8, #5>
+  miopen.blockwise_copy(%matrix_b, %thread_b_odd) { move_source_offset = k_per_block } : memref<?x?xf32>, memref<?xi8, #5>
 
   # blockwise GEMM is currently always LDS * LDS to register.
   # matrix A, B, C are all naive tensors.
-  miopen.blockwise_gemm(%block_a_odd, %block_b_odd, %thread_c)
+  miopen.blockwise_gemm(%matrix_block_a_odd, %matrix_block_b_odd, %matrix_thread_c) {
+    m_per_thread = 64,
+    n_per_thread = 64,
+    k_per_thread = 16,
+
+    m_level0_cluster = 16,
+    n_level0_cluster = 16,
+    m_level1_cluster = 16,
+    n_level1_cluster = 16,
+
+    matrix_a_source_data_per_read = 4,
+    matrix_b_source_data_per_read = 4
+  } : memref<?x?xf32, #3>, memref<?x?xf32, #3>, memref<?x?xf32, #5>
 
   # copy from register (naive tensor) to LDS (naive tensor).
-  miopen.blockwise_copy(%thread_a_even, %block_a_even)
-  miopen.blockwise_copy(%thread_b_even, %block_b_even)
+  miopen.blockwise_copy(%thread_a_even, %block_a_even) : memref<?xi8, #5>, memref<?xi8, #3>
+  miopen.blockwise_copy(%thread_b_even, %block_b_even) : memref<?xi8, #5>, memref<?xi8, #3>
 }
 
 # loop tail
-%has_two_iterations_left = (k % (k_per_block * 2) == 0
+%has_one_iteration_left = (k % (k_per_block * 2) != 0
 miopen.lds_barrier()
-loop.if %has_two_iterations_left {
-  miopen.blockwise_gemm(%block_a_odd, %block_b_odd, %thread_c)
+loop.if %has_one_iteration_left {
+  miopen.blockwise_gemm(%matrix_block_a_even, %matrix_block_b_even, %matrix_thread_c) {
+    m_per_thread = 64,
+    n_per_thread = 64,
+    k_per_thread = 16,
+
+    m_level0_cluster = 16,
+    n_level0_cluster = 16,
+    m_level1_cluster = 16,
+    n_level1_cluster = 16,
+
+    matrix_a_source_data_per_read = 4,
+    matrix_b_source_data_per_read = 4
+  } : memref<?x?xf32, #3>, memref<?x?xf32, #3>, memref<?x?xf32, #5>
 } else {
-  miopen.blockwise_gemm(%block_a_even, %block_b_even, %thread_c)
+  miopen.blockwise_gemm(%matrix_block_a_odd, %matrix_block_b_odd, %matrix_thread_c) {
+    m_per_thread = 64,
+    n_per_thread = 64,
+    k_per_thread = 16,
+
+    m_level0_cluster = 16,
+    n_level0_cluster = 16,
+    m_level1_cluster = 16,
+    n_level1_cluster = 16,
+
+    matrix_a_source_data_per_read = 4,
+    matrix_b_source_data_per_read = 4
+  } : memref<?x?xf32, #3>, memref<?x?xf32, #3>, memref<?x?xf32, #5>
 }
 
 # copy from register (naive tensor) to global (generic tensor)
-miopen.threadwise_copy(%thread_c, %matrix_c)
+miopen.threadwise_copy(%thread_c, %matrix_c) : memref<?xi8, #5>, memref<?x?xf32>
 ```
 
 -------------------------------------------------------------------------------
@@ -513,7 +588,19 @@ miopen.threadwise_copy(%thread_c, %matrix_c)
 Blockwise GEMM -> Threadwise Slice Copy + Threadwise GEMM
 
 ```mlir
-miopen.blockwise_gemm(%block_a, %block_b, %thread_c)
+miopen.blockwise_gemm(%block_a, %block_b, %thread_c) {
+  m_per_thread = 64,
+  n_per_thread = 64,
+  k_per_thread = 16,
+
+  m_level0_cluster = 16,
+  n_level0_cluster = 16,
+  m_level1_cluster = 16,
+  n_level1_cluster = 16,
+
+  matrix_a_source_data_per_read = 4,
+  matrix_b_source_data_per_read = 4
+}
 ```
 
 
@@ -522,8 +609,8 @@ miopen.blockwise_gemm(%block_a, %block_b, %thread_c)
 # non-XDLOPS
 
 # %threadwise_matrix_a is computed from k_per_thread_loop and m_per_thread
-%thread_a = miopen.alloc(%threadwise_matrix_a, %c5) : memref<?xf32, #5>
-%thread_b = miopen.alloc(%threadwise_matrix_b, %c5) : memref<?xf32, #5>
+%thread_a = miopen.alloc(%threadwise_matrix_a, %c5) : memref<?xi8, #5>
+%thread_b = miopen.alloc(%threadwise_matrix_b, %c5) : memref<?xi8, #5>
 
 %total_iteration = %K / %k_per_thread_loop
 
@@ -554,9 +641,9 @@ loop.for %iter_k = 0 to %total_iteration {
 # non-XDLOPS
 
 # %threadwise_matrix_a is computed from k_per_thread_loop and m_per_thread
-%thread_a = miopen.alloc(%threadwise_matrix_a, %c5) : memref<?xf32, #5>
+%thread_a = miopen.alloc(%threadwise_matrix_a, %c5) : memref<?xi8, #5>
 # %threadwise_matrix_b is computed from k_per_thread_loop and n_per_thread
-%thread_b = miopen.alloc(%threadwise_matrix_b, %c5) : memref<?xf32, #5>
+%thread_b = miopen.alloc(%threadwise_matrix_b, %c5) : memref<?xi8, #5>
 
 # read A_sub_0
 # copy from LDS (naive tensor) to register (naive tensor)
