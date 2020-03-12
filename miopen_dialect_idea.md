@@ -430,29 +430,22 @@ miopen.gridwise_gemm_ex(%matrix_a, %matrix_b, %matric_c) {
 
 # %block_a, %block_a_even, %block_a_odd are subviews of %block_shared
 # %block_a_size is computed similiar with %shared_block_size
-%block_a = miopen.subview(%block_shared, 0) : memref<?xf32>
+%block_a = miopen.subview(%block_shared, 0) : memref<?xf32, #3>
 %block_a_even = miopen.subview(%block_a, 0) : memref<?xf32, #3>
 %block_a_odd  = miopen.subview(%block_a, %block_a_size) : memref<?xf32, #3>
 
 # %block_b, %block_b_even, %block_b_odd are subviews of %block_shared
 # %pointer_to_block_b is computed following the same logic with %shared_block_Size
 # %block_b_size is computed similiar with %shared_block_size
-%block_b = miopen.subview(%block_Shared, %pointer_to_block_b) : memref<?xf32>
+%block_b = miopen.subview(%block_Shared, %pointer_to_block_b) : memref<?xf32, #3>
 %block_b_even = miopen.subview(%block_b, 0) : memref<?xf32, #3>
 %block_b_odd  = miopen.subview(%block_b, %block_b_size) : memref<?xf32, #3>
 
 # %matrix_c_size is computed from the following formula:
-# m_per_block / (m_per_thread * m_level0_cluster * m_level1_cluster) * m_per_thread * n_per_block / (n_per_thread * n_level0_cluster * n_level1_cluster) * n_per_threado
+# m_per_block / (m_per_thread * m_level0_cluster * m_level1_cluster) * m_per_thread * n_per_block / (n_per_thread * n_level0_cluster * n_level1_cluster) * n_per_thread
 #
 # private address space is fixed as a constant 5.
 %thread_c = miopen.alloc(%matrix_c_size, %c5) : memref<?xf32, #5>
-
-# zero-init %thread_c
-miopen.fill(%thread_c, %c0)
-
-# copy from global to LDS.
-miopen.blockwise_copy(%matrix_a, %block_a_even) 
-miopen.blockwise_copy(%matrix_b, %block_b_even)
 
 # %blockwise_copy_matrix_a = (k_per_block / A_BLOCK_COPY_CLUSTER_LENGTH_GEMM_K * m_per_block / A_BLOCK_COPY_CLUSTER_LENGTH_GEMM_M
 # %blockwise_copy_matrix_b = (k_per_block / B_BLOCK_COPY_CLUSTER_LENGTH_GEMM_K * n_per_block / B_BLOCK_COPY_CLUSTER_LENGTH_GEMM_N
@@ -461,6 +454,13 @@ miopen.blockwise_copy(%matrix_b, %block_b_even)
 %thread_b_even = miopen.alloc(%blockwise_copy_matrix_b, %c5) : memref<?xf32, #5>
 %thread_b_odd = miopen.alloc(%blockwise_copy_matrix_b, %c5) : memref<?xf32, #5>
 
+# zero-init %thread_c
+miopen.fill(%thread_c, %c0) : memref<?xf32, #5>
+
+# copy from global (generic tensor) to LDS (naive tensor).
+miopen.blockwise_copy(%matrix_a, %block_a_even) : memref<?xf32>, memref<?xf32, #3> 
+miopen.blockwise_copy(%matrix_b, %block_b_even) : memref<?xf32>, memref<?xf32, #3>
+
 # %total_iteration = k / (k_per_block * 2)
 loop.for %iter = %c0 to %total_iteration {
 
@@ -468,28 +468,29 @@ loop.for %iter = %c0 to %total_iteration {
 
   miopen.lds_barrier()
 
-  # copy from global to register.
+  # copy from global (generic tensor) to register (naive tensor).
   miopen.blockwise_copy(%matrix_a, %thread_a_even) { move_source_slice_window = k_per_block }
   miopen.blockwise_copy(%matrix_b, %thread_b_even) { move_source_slice_window = k_per_block }
 
   # blockwise GEMM is currently always LDS * LDS to register.
   miopen.blockwise_gemm(%block_a_even, %block_b_even, %thread_c)
 
-  # copy from register to LDS.
+  # copy from register (naive tensor) to LDS (naive tensor).
   miopen.blockwise_copy(%thread_a_even, %block_a_odd)
   miopen.blockwise_copy(%thread_b_even, %block_b_odd)
 
 
   miopen.lds_barrier()
 
-  # copy from global to register.
+  # copy from global (generic tensor) to register (naive tensor).
   miopen.blockwise_copy(%matrix_a, %thread_a_odd) { move_source_slice_window = k_per_block }
   miopen.blockwise_copy(%matrix_b, %thread_b_odd) { move_source_slice_window = k_per_block }
 
   # blockwise GEMM is currently always LDS * LDS to register.
+  # matrix A, B, C are all naive tensors.
   miopen.blockwise_gemm(%block_a_odd, %block_b_odd, %thread_c)
 
-  # copy from register to LDS.
+  # copy from register (naive tensor) to LDS (naive tensor).
   miopen.blockwise_copy(%thread_a_even, %block_a_even)
   miopen.blockwise_copy(%thread_b_even, %block_b_even)
 }
@@ -503,11 +504,132 @@ loop.if %has_two_iterations_left {
   miopen.blockwise_gemm(%block_a_even, %block_b_even, %thread_c)
 }
 
-# copy from register to global.
+# copy from register (naive tensor) to global (generic tensor)
 miopen.threadwise_copy(%thread_c, %matrix_c)
 ```
 
 -------------------------------------------------------------------------------
+
+Blockwise GEMM -> Threadwise Slice Copy + Threadwise GEMM
+
+```mlir
+miopen.blockwise_gemm(%block_a, %block_b, %thread_c)
+```
+
+
+```mlir
+# naive version
+# non-XDLOPS
+
+# %threadwise_matrix_a is computed from k_per_thread_loop and m_per_thread
+%thread_a = miopen.alloc(%threadwise_matrix_a, %c5) : memref<?xf32, #5>
+%thread_b = miopen.alloc(%threadwise_matrix_b, %c5) : memref<?xf32, #5>
+
+%total_iteration = %K / %k_per_thread_loop
+
+# unroll
+loop.for %iter_k = 0 to %total_iteration {
+  # read Matrix A
+  # unroll
+  loop.for %iter_a = 0 to %m_per_thread / (%m_per_thread_sub_c * %m_level0_thread_cluster * %m_level1_thread_cluster) {
+    # copy from LDS (naive tensor) to register (naive tensor)
+    miopen.threadwise_copy(%block_a, %thread_a) { offset_block = TBD, offset_thread = TBD }
+  }
+
+  # read Matrix B
+  # unroll
+  loop.for %iter_b = 0 to %n_per_thread / (%n_per_thread_sub_c * %n_level0_thread_cluster * %n_level1_thread_cluster) {
+    # copy from LDS (naive tensor) to register (naive tensor)
+    miopen.threadwise_copy(%block_b, %thread_b) { offset_block = TBD, offset_thread = TBD }
+  }
+
+  # C += A * B
+  # A, B, C are all on registers (naive tensor)
+  miopen.threadwise_gemm(%thread_a, %thread_b, %thread_c)
+}
+```
+
+```mlir
+# pipelined 2x2 version
+# non-XDLOPS
+
+# %threadwise_matrix_a is computed from k_per_thread_loop and m_per_thread
+%thread_a = miopen.alloc(%threadwise_matrix_a, %c5) : memref<?xf32, #5>
+# %threadwise_matrix_b is computed from k_per_thread_loop and n_per_thread
+%thread_b = miopen.alloc(%threadwise_matrix_b, %c5) : memref<?xf32, #5>
+
+# read A_sub_0
+# copy from LDS (naive tensor) to register (naive tensor)
+miopen.threadwise_copy(%block_a, %thread_a) { offset_source = TBD }
+
+# read B_sub_0
+# copy from LDS (naive tensor) to register (naive tensor)
+miopen.threadwise_copy(%block_b, %thread_b) { offset_source = TBD }
+
+# read B_sub_1
+# copy from LDS (naive tensor) to register (naive tensor)
+miopen.threadwise_copy(%block_b, %thread_b) { offset_source = TBD, offset_dest = TBD }
+
+# read A_sub_1
+# copy from LDS (naive tensor) to register (naive tensor)
+miopen.threadwise_copy(%block_a, %thread_a) { offset_source = TBD, offset_dest = TBD }
+
+# C_sub_00 += transpose(A_sub_0) * B_sub_0
+# A, B, C are all on registers (naive tensor)
+miopen.threadwise_gemm(%thread_a, %thread_b, %thread_c)
+
+# C_sub_01 += transpose(A_sub_0) * B_sub_1
+# A, B, C are all on registers (naive tensor)
+miopen.threadwise_gemm(%thread_a, %thread_b, %thread_c) { offset_b = TBD, offset_c = TBD }
+
+
+%total_iteration = %K / %k_per_thread_loop
+loop.for %iter_k = 0 to %total_iteration {
+  # read A_sub_0
+  # copy from LDS (naive tensor) to register (naive tensor)
+  miopen.threadwise_copy(%block_a, %thread_a) { offset_source = TBD }
+
+  # C_sub_10 += transpose(A_sub_1) * B_sub_0
+  # A, B, C are all on registers (naive tensor)
+  miopen.threadwise_gemm(%thread_a, %thread_b, %thread_c) { offset_a = TBD, offset_c = TBD }
+
+  # read B_sub_0
+  # copy from LDS (naive tensor) to register (naive tensor)
+  miopen.threadwise_copy(%block_b, %thread_b) { offset_source = TBD }
+
+  # C_sub_11 += transpose(A_sub_1) * B_sub_1
+  # A, B, C are all on registers (naive tensor)
+  miopen.threadwise_gemm(%thread_a, %thread_b, %thread_c) { offset_a = TBD, offset_b = TBD, offset_c = TBD }
+
+  # read B_sub_1
+  # copy from LDS (naive tensor) to register (naive tensor)
+  miopen.threadwise_copy(%block_b, %thread_b) { offset_source = TBD, offset_dest = TBD }
+
+  # read A_sub_1
+  # copy from LDS (naive tensor) to register (naive tensor)
+  miopen.threadwise_copy(%block_a, %thread_a) { offset_source = TBD, offset_dest = TBD }
+
+  # C_sub_00 += transpose(A_sub_0) * B_sub_0
+  # A, B, C are all on registers (naive tensor)
+  miopen.threadwise_gemm(%thread_a, %thread_b, %thread_c)
+
+  # C_sub_01 += transpose(A_sub_0) * B_sub_1
+  # A, B, C are all on registers (naive tensor)
+  miopen.threadwise_gemm(%thread_a, %thread_b, %thread_c) { offset_b = TBD, offset_c = TBD }
+}
+
+
+# C_sub_10 += transpose(A_sub_1) * B_sub_0
+# A, B, C are all on registers (naive tensor)
+miopen.threadwise_gemm(%thread_a, %thread_b, %thread_c) { offset_a = TBD, offset_c = TBD }
+
+# C_sub_11 += transpose(A_sub_1) * B_sub_1
+# A, B, C are all on registers (naive tensor)
+miopen.threadwise_gemm(%thread_a, %thread_b, %thread_c) { offset_a = TBD, offset_b = TBD, offset_c = TBD }
+
+}
+
+```
 
 Optimization
 ============
