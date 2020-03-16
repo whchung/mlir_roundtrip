@@ -381,6 +381,7 @@ miopen.gridwise_gemm(%filter_gemmK_gemmM, %output_gemmK_gemmN, %input_gemmM_gemm
 -------------------------------------------------------------------------------
 
 Gridwise GEMM -> Blockwise Slice Copy + Blockwise GEMM + Threadwise Slice Copy
+==============================================================================
 
 ```mlir
 
@@ -586,6 +587,7 @@ miopen.threadwise_copy(%thread_c, %matrix_c) : memref<?xi8, #5>, memref<?x?xf32>
 -------------------------------------------------------------------------------
 
 Blockwise GEMM -> Threadwise Slice Copy + Threadwise GEMM
+=========================================================
 
 ```mlir
 miopen.blockwise_gemm(%block_a, %block_b, %thread_c) {
