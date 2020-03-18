@@ -445,7 +445,7 @@ miopen.gridwise_gemm_ex(%matrix_a, %matrix_b, %matric_c) {
 %block_a_odd  = miopen.subview(%block_a, %block_a_size) : memref<?xi8, 3> to memref<?xi8, 3>
 
 # %matrix_block_a_odd is an 2-D subview of %block_a
-%matrix_block_a_odd = miopen.subview(%block_a_odd, %block_a_size) { dimension = [%k, %m] } : memref<?xi8, 3> to memref<?x?xf32, 3>
+%matrix_block_a_odd = miopen.subview(%block_a_odd, %c0) { dimension = [%k, %m] } : memref<?xi8, 3> to memref<?x?xf32, 3>
 
 
 # Views for Matrix B on LDS memory
@@ -457,14 +457,14 @@ miopen.gridwise_gemm_ex(%matrix_a, %matrix_b, %matric_c) {
 %block_b_even = miopen.subview(%block_b, %c0) : memref<?xi8, 3> to memref<?xi8, 3>
 
 # %matrix_block_b_even is an 2-D subview of %block_b
-%matrix_block_b_even = miopen.subview(%block_b, %c0) { dimension = [%k, %m] } : memref<?xi8, 3> to memref<?x?xf32, 3>
+%matrix_block_b_even = miopen.subview(%block_b, %c0) { dimension = [%k, %n] } : memref<?xi8, 3> to memref<?x?xf32, 3>
 
 # %block_b_odd is an 1-D subview of %block_b
 # %block_b_size is computed similiar with %shared_block_size
 %block_b_odd  = miopen.subview(%block_b, %block_b_size) : memref<?xi8, 3> to memref<?xi8, 3>
 
 # %matrix_block_b_odd is an 2-D subview of %block_b
-%matrix_block_b_odd = miopen.subview(%block_b_odd, %block_b_size) { dimension = [%k, %m] } : memref<?xi8, 3> to memref<?x?xf32, 3>
+%matrix_block_b_odd = miopen.subview(%block_b_odd, %c0) { dimension = [%k, %n] } : memref<?xi8, 3> to memref<?x?xf32, 3>
 
 
 # %matrix_c_size is computed from the following formula:
