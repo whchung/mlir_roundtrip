@@ -204,10 +204,10 @@ miopen.gridwise_gemm(%filter_gemmK_gemmM, %input_gemmK_gemmN, %output_gemmM_gemm
 ```
 -------------------------------------------------------------------------------
 
-Conv Backward Data Transform
+conv backward data transform
 ===============
 
-An example based on NCHW/KCYX/NKHW:
+an example based on nchw/kcyx/nkhw:
 
 ```mlir
 // filter tensor
@@ -364,6 +364,181 @@ An example based on NCHW/KCYX/NKHW:
 // apply gridwise GEMM
 miopen.gridwise_gemm(%filter_gemmK_gemmM, %output_gemmK_gemmN, %input_gemmM_gemmN) {
   kernel_algorithm = "backward_data_v1r1",
+  filter_dimension = [?, ?, ?, ?],
+  filter_layout = ["k", "c", "y", "x"],
+  input_dimension = [?, ?, ?, ?],
+  input_layout = ["n", "c", "hi", "wi"],
+  output_dimension = [?, ?, ?, ?],
+  output_layout = ["n", "k", "ho", "wo"],
+  dilations = [1, 1],
+  strides = [1, 1],
+  padding = [[0, 0], [0, 0]]
+} : memref<?x?xf32>,
+    memref<?x?xf32>,
+    memref<?x?xf32>
+```
+
+-------------------------------------------------------------------------------
+
+conv backward weight transform
+===============
+
+an example based on nchw/kcyx/nkhw:
+
+```mlir
+// filter tensor
+%filter_gemmM_gemmN = miopen.transform(%filter) {
+  gridwise_gemm_argument_position = 2
+  layout = [
+    {
+      dimensions = [0],
+      names = ["gemmM"],
+      transformation = "PassThrough",
+      source_dimensions = [0],
+      source_names = ["k"]
+    },
+    {
+      dimensions = [1],
+      names = ["gemmN"],
+      transformation = "Unfold",
+      source_dimensions = [1, 2, 3],
+      source_names = ["c", "y", "x"],
+    }
+  ],
+  output_layout = ["gemmM", "gemmN"],
+  source_layout = ["k", "c", "y", "x"]
+} : memref<?x?x?x?xf32> to memref<?x?xf32>
+```
+
+```mlir
+// input tensor
+%input_n_c_hipad_wipad = miopen.transform(%input) {
+  layout = [
+    {
+      dimensions = [0],
+      names = ["n"],
+      transformation = "passthorugh",
+      source_dimensions = [0],
+      source_names = ["n"]
+    },
+    {
+      dimensions = [1],
+      names = ["c"],
+      transformation = "passthorugh",
+      source_dimensions = [1],
+      source_names = ["c"]
+    },
+    {
+      dimensions = [2],
+      names = ["hipad"],
+      transformation = "pad",
+      parameters = [0, 0],
+      source_dimensions = [2],
+      source_names = ["hi"]
+    },
+    {
+      dimensions = [3],
+      names = ["wipad"],
+      transformation = "pad",
+      parameters = [0, 0],
+      source_dimensions = [3],
+      source_names = ["wi"]
+    }
+  ],
+  output_layout = ["n", "c", "hipad", "wipad"],
+  source_layout = ["n", "c", "h", "w"]
+} : memref<?x?x?x?xf32> to memref<?x?x?x?xf32>
+
+%input_n_c_y_ho_x_wo = miopen.transform(%input_n_c_hipad_wipad) {
+  layout = [
+    layout = [
+      {
+        dimensions = [0],
+        names = ["n"],
+        transformation = "passthrough",
+        source_dimensions = [0],
+        source_names = ["n"]
+      },
+      {
+        dimensions = [1],
+        names = ["c"],
+        transformation = "passthrough",
+        source_dimensions = [1],
+        source_names = ["c"]
+      },
+      {
+        dimensions = [2, 3],
+        names = ["y", "ho"],
+        transformation = "embed",
+        parameters = [2, [1, 1, 0]],
+        source_dimensions = [2],
+        source_names = ["hipad"]
+      },
+      {
+        dimensions = [4, 5],
+        names = ["x", "wo"],
+        transformation = "embed",
+        parameters = [2, [1, 1, 0]],
+        source_dimensions = [2],
+        source_names = ["wipad"]
+      }
+  ],
+  intermediate_layout = ["n", "c", "hipad", "wipad"],
+  output_layout = ["n", "c", "y", "ho", "x", "wo"]
+} : memref<?x?x?x?xf32> to memref<?x?x?x?x?x?x?xf32>
+
+%input_gemmK_gemmN = miopen.transform(%input_n_c_y_ho_x_wo) {
+  gridwise_gemm_argument_position = 1
+  layout = [
+    {
+      dimensions = [0],
+      names = ["gemmK"],
+      transformation = "merge",
+      source_dimensions = [0, 3, 5],
+      source_names = ["n", "ho", "wo"]
+    },
+    {
+      dimensions = [1],
+      names = ["gemmN"],
+      transformation = "merge",
+      source_dimensions = [1, 2, 4],
+      source_names = ["c", "y", "x"]
+    }
+  ],
+  intermediate_layout = ["n", "c", "y", "ho", "x", "wo"],
+  output_layout = ["gemmK", "gemmN"]
+} : memref<?x?x?x?x?x?x?xf32> to memref<?x?xf32>
+```
+
+```mlir
+// output tensor
+%output_gemmK_gemmM = miopen.transform(%output) {
+  gridwise_gemm_argument_position = 0
+  layout = [
+    {
+      dimensions = [0],
+      names = ["gemmK"],
+      transformation = "merge",
+      source_dimensions = [0, 2, 3],
+      source_names = ["n", "ho", "wo"]
+    },
+    {
+      dimensions = [1],
+      names = ["gemmM"],
+      transformation = "passthrough",
+      source_dimensions = [1],
+      source_names = ["k"]
+    }
+  ],
+  output_layout = ["gemmK", "gemmM"],
+  source_layout = ["n", "ko", "ho", "wo"]
+} : memref<?x?x?x?xf32> to memref<?x?xf32>
+```
+
+```mlir
+// apply gridwise GEMM
+miopen.gridwise_gemm(%output_gemmK_gemmM, %input_gemmK_gemmN, %filter_gemmM_gemmN) {
+  kernel_algorithm = "backward_weight_v4r4",
   filter_dimension = [?, ?, ?, ?],
   filter_layout = ["k", "c", "y", "x"],
   input_dimension = [?, ?, ?, ?],
